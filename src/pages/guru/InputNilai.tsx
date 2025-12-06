@@ -1,23 +1,63 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/common/PageHeader';
-import { students } from '@/data/mockData';
 import { Save, Calculator, Users, BookOpen } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { api } from '@/services/api';
 
 const GuruInputNilai = () => {
   const [selectedClass, setSelectedClass] = useState('IX-A');
   const [selectedSubject] = useState('Matematika');
-  const classStudents = students.filter((s) => s.class === selectedClass);
+  const [studentsState, setStudentsState] = useState<
+    { id: string; name: string; nisn: string; className?: string }[]
+  >([]);
+  const [grades, setGrades] = useState<
+    Record<string, { tugas: number; ulangan: number; uts: number; uas: number }>
+  >({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const [grades, setGrades] = useState<Record<string, { tugas: number; ulangan: number; uts: number; uas: number }>>(() => {
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const res = await api.get<{ data: any[] }>(`/siswa`);
+        const siswaFromApi: { id: string; name: string; nisn: string; className?: string }[] =
+          (res.data ?? []).map((s: any) => ({
+            id: String(s.idSiswa ?? s.id_siswa ?? s.id),
+            name: s.namaLengkap ?? s.nama_lengkap ?? s.nama ?? s.name,
+            nisn: s.nisn ?? '-',
+            className:
+              s.kelas?.namaKelas ?? s.kelas?.nama_kelas ?? s.className ?? s.class ?? '',
+          }));
+
+        setStudentsState(siswaFromApi);
+      } catch (e: any) {
+        setError(e?.message ?? 'Gagal memuat data siswa');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
+  }, []);
+
+  const classStudents = useMemo(
+    () => studentsState.filter((s) => s.className === selectedClass),
+    [studentsState, selectedClass],
+  );
+
+  useEffect(() => {
+    // Inisialisasi nilai default setiap kali daftar siswa di kelas berubah
     const initial: Record<string, { tugas: number; ulangan: number; uts: number; uas: number }> = {};
     classStudents.forEach((s) => {
       initial[s.id] = { tugas: 80, ulangan: 78, uts: 82, uas: 85 };
     });
-    return initial;
-  });
+    setGrades(initial);
+  }, [classStudents]);
 
   const calculateFinal = (g: { tugas: number; ulangan: number; uts: number; uas: number }) => {
     return Math.round(g.tugas * 0.2 + g.ulangan * 0.2 + g.uts * 0.3 + g.uas * 0.3);

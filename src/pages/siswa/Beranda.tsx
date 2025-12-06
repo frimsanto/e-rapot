@@ -1,19 +1,74 @@
+import { useEffect, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/common/PageHeader';
 import { StatsCard } from '@/components/common/StatsCard';
 import { useApp } from '@/contexts/AppContext';
-import { gradeProgression, grades, subjects } from '@/data/mockData';
 import { BookOpen, Trophy, Calendar, TrendingUp, Clock, Target } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { api } from '@/services/api';
 
 const SiswaBeranda = () => {
   const { user, jenjang } = useApp();
-  const currentSubjects = subjects[jenjang];
-  
-  const avgGrade = Math.round(grades.reduce((sum, g) => sum + g.final, 0) / grades.length);
-  const bestSubject = currentSubjects.find(s => s.id === '7');
+  type Subject = { id: string; name: string; code: string };
+  type Grade = { subjectId: string; final: number };
+
+  const [subjectsState, setSubjectsState] = useState<Subject[]>([]);
+  const [gradesState, setGradesState] = useState<Grade[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const mapelRes = await api.get<{ data: any[] }>(`/mapel?jenjang=${jenjang}`);
+        const subjectsFromApi: Subject[] = mapelRes.data.map((m) => ({
+          id: String(m.idMapel ?? m.id_mapel ?? m.id),
+          name: m.namaMapel ?? m.nama_mapel ?? m.name,
+          code: m.kodeMapel ?? m.kode_mapel ?? m.code,
+        }));
+
+        const nilaiRes = await api.get<{ data: any[] }>(`/nilai/akhir?idSiswa=1&idSemester=2`);
+        const gradesFromApi: Grade[] = nilaiRes.data.map((n) => ({
+          subjectId: String(
+            n.idMapel ?? n.id_mapel ?? n.mapelId ?? n.mapel?.idMapel ?? n.mapel?.id,
+          ),
+          final: Number(n.skorAkhir ?? n.skor_akhir ?? n.final ?? 0),
+        }));
+
+        setSubjectsState(subjectsFromApi);
+        setGradesState(gradesFromApi);
+      } catch (e: any) {
+        setError(e?.message ?? 'Gagal memuat ringkasan nilai');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
+  }, [jenjang]);
+
+  const avgGrade = gradesState.length
+    ? Math.round(gradesState.reduce((sum, g) => sum + g.final, 0) / gradesState.length)
+    : 0;
+
+  const bestGrade = gradesState.length
+    ? gradesState.slice().sort((a, b) => b.final - a.final)[0]
+    : null;
+  const bestSubject = bestGrade
+    ? subjectsState.find((s) => s.id === bestGrade.subjectId) ?? null
+    : null;
+
+  const gradeProgressionData = [
+    {
+      semester: 'Genap 2023/2024',
+      average: avgGrade,
+    },
+  ];
   const upcomingSchedule = [
     { time: '07:45', subject: 'Matematika', teacher: 'Pak Agus' },
     { time: '09:30', subject: 'Bahasa Indonesia', teacher: 'Ibu Sri' },
@@ -37,7 +92,7 @@ const SiswaBeranda = () => {
         />
         <StatsCard
           title="Mata Pelajaran"
-          value={currentSubjects.length}
+          value={subjectsState.length}
           icon={BookOpen}
           description="Semester ini"
         />
@@ -69,8 +124,14 @@ const SiswaBeranda = () => {
             </Badge>
           </div>
           <div className="h-64">
+            {loading && (
+              <p className="text-sm text-muted-foreground mb-2">Memuat data nilai dari server...</p>
+            )}
+            {error && !loading && (
+              <p className="text-sm text-destructive mb-2">{error}</p>
+            )}
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={gradeProgression}>
+              <AreaChart data={gradeProgressionData}>
                 <defs>
                   <linearGradient id="colorGrade" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="hsl(221, 83%, 53%)" stopOpacity={0.2}/>
@@ -170,8 +231,11 @@ const SiswaBeranda = () => {
             <h3 className="text-lg font-semibold text-foreground">Nilai Tertinggi</h3>
           </div>
           <div className="space-y-3">
-            {grades.slice(0, 5).sort((a, b) => b.final - a.final).map((grade, index) => {
-              const subject = currentSubjects.find(s => s.id === grade.subjectId);
+            {gradesState
+              .slice(0, 5)
+              .sort((a, b) => b.final - a.final)
+              .map((grade, index) => {
+                const subject = subjectsState.find((s) => s.id === grade.subjectId);
               return (
                 <div key={index} className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/50 transition-colors">
                   <div className="flex items-center gap-3">
@@ -183,9 +247,14 @@ const SiswaBeranda = () => {
                     </div>
                     <span className="font-medium text-foreground">{subject?.name || 'Mata Pelajaran'}</span>
                   </div>
-                  <Badge variant="outline" className={cn(
-                    grade.final >= 85 ? 'bg-success/10 text-success border-success/20' : 'bg-muted'
-                  )}>
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      grade.final >= 85
+                        ? 'bg-success/10 text-success border-success/20'
+                        : 'bg-muted',
+                    )}
+                  >
                     {grade.final}
                   </Badge>
                 </div>

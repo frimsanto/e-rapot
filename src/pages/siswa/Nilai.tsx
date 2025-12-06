@@ -1,17 +1,73 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/common/PageHeader';
 import { useApp } from '@/contexts/AppContext';
-import { grades, subjects } from '@/data/mockData';
 import { BookOpen, Eye, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import { api } from '@/services/api';
 
 const SiswaNilai = () => {
   const { jenjang } = useApp();
-  const currentSubjects = subjects[jenjang];
-  const [selectedGrade, setSelectedGrade] = useState<typeof grades[0] | null>(null);
+  type Subject = { id: string; name: string; code: string };
+  type Grade = {
+    subjectId: string;
+    tugas: number;
+    ulangan: number;
+    uts: number;
+    uas: number;
+    final: number;
+  };
+
+  const [subjectsState, setSubjectsState] = useState<Subject[]>([]);
+  const [gradesState, setGradesState] = useState<Grade[]>([]);
+  const [selectedGrade, setSelectedGrade] = useState<Grade | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        // Mapel per jenjang
+        const mapelRes = await api.get<{ data: any[] }>(`/mapel?jenjang=${jenjang}`);
+        const subjectsFromApi: Subject[] = mapelRes.data.map((m) => ({
+          id: String(m.idMapel ?? m.id_mapel ?? m.id),
+          name: m.namaMapel ?? m.nama_mapel ?? m.name,
+          code: m.kodeMapel ?? m.kode_mapel ?? m.code,
+        }));
+
+        // Nilai akhir dari BE; komponen nilai belum disimpan terpisah,
+        // jadi sementara isi tugas/ulangan/uts/uas dengan nilai akhir saja
+        const nilaiRes = await api.get<{ data: any[] }>(`/nilai/akhir?idSiswa=1&idSemester=2`);
+        const gradesFromApi: Grade[] = nilaiRes.data.map((n) => {
+          const final = Number(n.skorAkhir ?? n.skor_akhir ?? n.final ?? 0);
+          return {
+            subjectId: String(
+              n.idMapel ?? n.id_mapel ?? n.mapelId ?? n.mapel?.idMapel ?? n.mapel?.id,
+            ),
+            tugas: final,
+            ulangan: final,
+            uts: final,
+            uas: final,
+            final,
+          };
+        });
+
+        setSubjectsState(subjectsFromApi);
+        setGradesState(gradesFromApi);
+      } catch (e: any) {
+        setError(e?.message ?? 'Gagal memuat data nilai');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
+  }, [jenjang]);
 
   const getGradeColor = (value: number) => {
     if (value >= 85) return 'text-success';
@@ -27,14 +83,16 @@ const SiswaNilai = () => {
     return { label: 'D', className: 'bg-destructive/10 text-destructive border-destructive/20' };
   };
 
-  const getTrend = (grade: typeof grades[0]) => {
+  const getTrend = (grade: Grade) => {
     const diff = grade.uas - grade.uts;
     if (diff > 2) return { icon: TrendingUp, className: 'text-success' };
     if (diff < -2) return { icon: TrendingDown, className: 'text-destructive' };
     return { icon: Minus, className: 'text-muted-foreground' };
   };
 
-  const avgGrade = Math.round(grades.reduce((sum, g) => sum + g.final, 0) / grades.length);
+  const avgGrade = gradesState.length
+    ? Math.round(gradesState.reduce((sum, g) => sum + g.final, 0) / gradesState.length)
+    : 0;
 
   return (
     <AppLayout>
@@ -51,15 +109,19 @@ const SiswaNilai = () => {
         </div>
         <div className="stat-card">
           <p className="text-sm text-muted-foreground">Nilai Tertinggi</p>
-          <p className="text-3xl font-bold text-success">{Math.max(...grades.map(g => g.final))}</p>
+          <p className="text-3xl font-bold text-success">
+            {gradesState.length ? Math.max(...gradesState.map((g) => g.final)) : 0}
+          </p>
         </div>
         <div className="stat-card">
           <p className="text-sm text-muted-foreground">Nilai Terendah</p>
-          <p className="text-3xl font-bold text-warning">{Math.min(...grades.map(g => g.final))}</p>
+          <p className="text-3xl font-bold text-warning">
+            {gradesState.length ? Math.min(...gradesState.map((g) => g.final)) : 0}
+          </p>
         </div>
         <div className="stat-card">
           <p className="text-sm text-muted-foreground">Mata Pelajaran</p>
-          <p className="text-3xl font-bold text-foreground">{grades.length}</p>
+          <p className="text-3xl font-bold text-foreground">{gradesState.length}</p>
         </div>
       </div>
 
@@ -90,8 +152,8 @@ const SiswaNilai = () => {
               </tr>
             </thead>
             <tbody>
-              {grades.map((grade, index) => {
-                const subject = currentSubjects.find(s => s.id === grade.subjectId);
+              {gradesState.map((grade, index) => {
+                const subject = subjectsState.find((s) => s.id === grade.subjectId);
                 const gradeBadge = getGradeBadge(grade.final);
                 const trend = getTrend(grade);
                 const TrendIcon = trend.icon;

@@ -1,16 +1,61 @@
+import { useEffect, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/common/PageHeader';
 import { useApp } from '@/contexts/AppContext';
-import { semesters, grades, subjects } from '@/data/mockData';
+import { semesters } from '@/data/mockData';
 import { FileText, Download, Eye, CheckCircle, Clock } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { api } from '@/services/api';
 
 const SiswaRapor = () => {
   const { jenjang } = useApp();
-  const currentSubjects = subjects[jenjang];
 
-  const avgGrade = Math.round(grades.reduce((sum, g) => sum + g.final, 0) / grades.length);
+  type Subject = { id: string; name: string; code: string };
+  type Grade = { subjectId: string; final: number };
+
+  const [subjectsState, setSubjectsState] = useState<Subject[]>([]);
+  const [gradesState, setGradesState] = useState<Grade[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        // Mapel per jenjang
+        const mapelRes = await api.get<{ data: any[] }>(`/mapel?jenjang=${jenjang}`);
+        const subjectsFromApi: Subject[] = mapelRes.data.map((m) => ({
+          id: String(m.idMapel ?? m.id_mapel ?? m.id),
+          name: m.namaMapel ?? m.nama_mapel ?? m.name,
+          code: m.kodeMapel ?? m.kode_mapel ?? m.code,
+        }));
+
+        // Nilai akhir untuk 1 siswa & 1 semester (sementara hardcode id siswa 1 & semester 2
+        // sesuai seed awal; nanti bisa diambil dari context/user login)
+        const nilaiRes = await api.get<{ data: any[] }>(`/nilai/akhir?idSiswa=1&idSemester=2`);
+        const gradesFromApi: Grade[] = nilaiRes.data.map((n) => ({
+          subjectId: String(n.idMapel ?? n.id_mapel ?? n.mapelId ?? n.mapel?.idMapel ?? n.mapel?.id),
+          final: Number(n.skorAkhir ?? n.skor_akhir ?? n.final ?? 0),
+        }));
+
+        setSubjectsState(subjectsFromApi);
+        setGradesState(gradesFromApi);
+      } catch (e: any) {
+        setError(e?.message ?? 'Gagal memuat data rapor');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
+  }, [jenjang]);
+
+  const avgGrade = gradesState.length
+    ? Math.round(gradesState.reduce((sum, g) => sum + g.final, 0) / gradesState.length)
+    : 0;
 
   return (
     <AppLayout>
@@ -102,6 +147,12 @@ const SiswaRapor = () => {
         </div>
 
         <div className="p-6">
+          {loading && (
+            <p className="text-sm text-muted-foreground mb-4">Memuat data rapor dari server...</p>
+          )}
+          {error && !loading && (
+            <p className="text-sm text-destructive mb-4">{error}</p>
+          )}
           {/* Student Info */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6 pb-6 border-b border-border">
             <div className="space-y-2">
@@ -147,8 +198,8 @@ const SiswaRapor = () => {
                 </tr>
               </thead>
               <tbody>
-                {grades.map((grade, index) => {
-                  const subject = currentSubjects.find((s) => s.id === grade.subjectId);
+                {gradesState.map((grade, index) => {
+                  const subject = subjectsState.find((s) => s.id === grade.subjectId);
                   const predikat = grade.final >= 85 ? 'A' : grade.final >= 75 ? 'B' : grade.final >= 65 ? 'C' : 'D';
 
                   return (

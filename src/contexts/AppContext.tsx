@@ -1,14 +1,13 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
+import type { AuthUser, BackendRole } from '@/types/auth';
+import { login as authLogin } from '@/services/authService';
 
 export type Role = 'siswa' | 'guru' | 'kurikulum' | 'walikelas' | 'kepalasekolah' | 'admin';
-export type Jenjang = 'SD' | 'SMP' | 'SMK';
+export type Jenjang = 'SD' | 'SMP' | 'SMA' | 'SMK';
 
-interface User {
-  id: string;
-  name: string;
-  email: string;
-  avatar?: string;
-  role: Role;
+interface User extends AuthUser {
+  // Keep lowercase role for existing UI while backend uses BackendRole
+  frontendRole: Role;
 }
 
 interface AppContextType {
@@ -19,19 +18,29 @@ interface AppContextType {
   setJenjang: (jenjang: Jenjang) => void;
   setUser: (user: User | null) => void;
   isAuthenticated: boolean;
-  login: (role: Role) => void;
+  token: string | null;
+  login: (email: string, password: string) => Promise<Role>;
   logout: () => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const defaultUsers: Record<Role, User> = {
-  siswa: { id: '1', name: 'Ahmad Fauzi', email: 'ahmad@siswa.sch.id', role: 'siswa' },
-  guru: { id: '2', name: 'Ibu Sri Wahyuni', email: 'sri@guru.sch.id', role: 'guru' },
-  kurikulum: { id: '3', name: 'Pak Bambang Hartono', email: 'bambang@sekolah.sch.id', role: 'kurikulum' },
-  walikelas: { id: '4', name: 'Ibu Dewi Sartika', email: 'dewi@guru.sch.id', role: 'walikelas' },
-  kepalasekolah: { id: '5', name: 'Dr. Hadi Suprapto', email: 'kepala@sekolah.sch.id', role: 'kepalasekolah' },
-  admin: { id: '6', name: 'Administrator', email: 'admin@sekolah.sch.id', role: 'admin' },
+const backendToFrontendRole: Record<BackendRole, Role> = {
+  SISWA: 'siswa',
+  GURU: 'guru',
+  KURIKULUM: 'kurikulum',
+  WALI_KELAS: 'walikelas',
+  KEPALA_SEKOLAH: 'kepalasekolah',
+  ADMIN: 'admin',
+};
+
+const frontendToBackendRole: Record<Role, BackendRole> = {
+  siswa: 'SISWA',
+  guru: 'GURU',
+  kurikulum: 'KURIKULUM',
+  walikelas: 'WALI_KELAS',
+  kepalasekolah: 'KEPALA_SEKOLAH',
+  admin: 'ADMIN',
 };
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -39,22 +48,43 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [role, setRole] = useState<Role>('siswa');
   const [jenjang, setJenjang] = useState<Jenjang>('SMP');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
 
   const handleSetRole = (newRole: Role) => {
+    // Demo role switcher in navbar: update role and user.frontendRole only
     setRole(newRole);
-    if (isAuthenticated) {
-      setUser(defaultUsers[newRole]);
-    }
+    setUser((prev) =>
+      prev
+        ? {
+            ...prev,
+            frontendRole: newRole,
+          }
+        : prev,
+    );
   };
 
-  const login = (selectedRole: Role) => {
-    setRole(selectedRole);
-    setUser(defaultUsers[selectedRole]);
+  const login = async (email: string, password: string): Promise<Role> => {
+    const response = await authLogin(email, password);
+    const frontendRole = backendToFrontendRole[response.user.role];
+
+    const nextUser: User = {
+      ...response.user,
+      frontendRole,
+    };
+
+    setUser(nextUser);
+    setRole(frontendRole);
+    if (response.user.jenjang) {
+      setJenjang(response.user.jenjang);
+    }
+    setToken(response.token);
     setIsAuthenticated(true);
+    return frontendRole;
   };
 
   const logout = () => {
     setUser(null);
+    setToken(null);
     setIsAuthenticated(false);
   };
 
@@ -68,6 +98,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setJenjang,
         setUser,
         isAuthenticated,
+        token,
         login,
         logout,
       }}

@@ -1,22 +1,58 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/common/PageHeader';
-import { students } from '@/data/mockData';
 import { Save, CheckCircle, XCircle, Clock, AlertCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { api } from '@/services/api';
 
 const GuruPresensi = () => {
   const [selectedClass, setSelectedClass] = useState('IX-A');
-  const classStudents = students.filter((s) => s.class === selectedClass);
+  const [studentsState, setStudentsState] = useState<
+    { id: string; name: string; nisn: string; gender: string; className?: string }[]
+  >([]);
+  const [attendance, setAttendance] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const [attendance, setAttendance] = useState<Record<string, string>>(() => {
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const res = await api.get<{ data: any[] }>(`/siswa`);
+        const siswaFromApi = res.data.map((s) => ({
+          id: String(s.idSiswa ?? s.id_siswa ?? s.id),
+          name: s.namaLengkap ?? s.nama_lengkap ?? s.nama ?? s.name,
+          nisn: s.nisn ?? '-',
+          gender: s.jenisKelamin ?? s.jenis_kelamin ?? s.gender ?? 'L',
+          className: s.kelas?.namaKelas ?? s.kelas?.nama_kelas ?? s.className ?? s.class ?? '',
+        }));
+
+        setStudentsState(siswaFromApi);
+      } catch (e: any) {
+        setError(e?.message ?? 'Gagal memuat data siswa');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
+  }, []);
+
+  const classStudents = useMemo(
+    () => studentsState.filter((s) => s.className === selectedClass),
+    [studentsState, selectedClass],
+  );
+
+  useEffect(() => {
     const initial: Record<string, string> = {};
     classStudents.forEach((s) => {
       initial[s.id] = 'hadir';
     });
-    return initial;
-  });
+    setAttendance(initial);
+  }, [classStudents]);
 
   const classes = ['VII-A', 'VII-B', 'VIII-A', 'VIII-B', 'IX-A', 'IX-B'];
   const statuses = [

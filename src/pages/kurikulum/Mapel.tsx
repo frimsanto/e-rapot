@@ -1,14 +1,57 @@
+import { useEffect, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/common/PageHeader';
 import { useApp } from '@/contexts/AppContext';
-import { subjects } from '@/data/mockData';
 import { Plus, Edit, Trash2, BookOpen } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { api } from '@/services/api';
 
 const KurikulumMapel = () => {
   const { jenjang } = useApp();
-  const currentSubjects = subjects[jenjang];
+
+  type Subject = { id: string; name: string; code: string; jenjang: 'SD' | 'SMP' | 'SMK' };
+
+  const [subjectsState, setSubjectsState] = useState<Subject[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const [sdRes, smpRes, smkRes] = await Promise.all([
+          api.get<{ data: any[] }>(`/mapel?jenjang=SD`),
+          api.get<{ data: any[] }>(`/mapel?jenjang=SMP`),
+          api.get<{ data: any[] }>(`/mapel?jenjang=SMK`),
+        ]);
+
+        const mapResponse = (res: { data: any[] }, level: 'SD' | 'SMP' | 'SMK'): Subject[] =>
+          res.data.map((m) => ({
+            id: String(m.idMapel ?? m.id_mapel ?? m.id),
+            name: m.namaMapel ?? m.nama_mapel ?? m.name,
+            code: m.kodeMapel ?? m.kode_mapel ?? m.code,
+            jenjang: level,
+          }));
+
+        setSubjectsState([
+          ...mapResponse(sdRes, 'SD'),
+          ...mapResponse(smpRes, 'SMP'),
+          ...mapResponse(smkRes, 'SMK'),
+        ]);
+      } catch (e: any) {
+        setError(e?.message ?? 'Gagal memuat daftar mata pelajaran');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
+  }, []);
+
+  const currentSubjects = subjectsState.filter((s) => s.jenjang === jenjang);
 
   const jenjangColors = {
     SD: 'badge-sd',
@@ -79,14 +122,23 @@ const KurikulumMapel = () => {
             <div key={j} className="space-y-3">
               <div className="flex items-center justify-between">
                 <Badge className={cn(jenjangColors[j])}>{j}</Badge>
-                <span className="text-sm text-muted-foreground">{subjects[j].length} mapel</span>
+                <span className="text-sm text-muted-foreground">
+                  {subjectsState.filter((s) => s.jenjang === j).length} mapel
+                </span>
               </div>
               <div className="space-y-1">
-                {subjects[j].slice(0, 5).map((s) => (
-                  <p key={s.id} className="text-sm text-foreground">{s.name}</p>
-                ))}
-                {subjects[j].length > 5 && (
-                  <p className="text-sm text-muted-foreground">+{subjects[j].length - 5} lainnya</p>
+                {subjectsState
+                  .filter((s) => s.jenjang === j)
+                  .slice(0, 5)
+                  .map((s) => (
+                    <p key={s.id} className="text-sm text-foreground">
+                      {s.name}
+                    </p>
+                  ))}
+                {subjectsState.filter((s) => s.jenjang === j).length > 5 && (
+                  <p className="text-sm text-muted-foreground">
+                    +{subjectsState.filter((s) => s.jenjang === j).length - 5} lainnya
+                  </p>
                 )}
               </div>
             </div>

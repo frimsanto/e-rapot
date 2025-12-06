@@ -1,29 +1,54 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp, Role } from '@/contexts/AppContext';
-import { GraduationCap, User, Lock, ArrowRight } from 'lucide-react';
+import { GraduationCap, User, Lock, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useToast } from '@/hooks/use-toast';
 
-const roles: { value: Role; label: string; description: string }[] = [
-  { value: 'siswa', label: 'Siswa', description: 'Akses nilai, jadwal, dan rapor' },
-  { value: 'guru', label: 'Guru', description: 'Input nilai dan kelola kelas' },
-  { value: 'kurikulum', label: 'Kurikulum', description: 'Kelola jadwal dan mapel' },
-  { value: 'walikelas', label: 'Wali Kelas', description: 'Kelola rapor kelas' },
-  { value: 'kepalasekolah', label: 'Kepala Sekolah', description: 'Monitoring dan approval' },
-  { value: 'admin', label: 'Administrator', description: 'Kelola sistem' },
-];
+const defaultRouteByRole: Record<Role, string> = {
+  siswa: '/siswa',
+  guru: '/guru',
+  kurikulum: '/kurikulum',
+  walikelas: '/walikelas',
+  kepalasekolah: '/kepalasekolah',
+  admin: '/admin',
+};
 
 const Login = () => {
-  const [selectedRole, setSelectedRole] = useState<Role>('siswa');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const { login } = useApp();
   const navigate = useNavigate();
+  const { toast } = useToast();
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    login(selectedRole);
-    navigate(`/${selectedRole}`);
+    if (!email || !password) {
+      toast({
+        title: 'Login gagal',
+        description: 'Email dan password wajib diisi.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      const role = await login(email, password);
+      const target = defaultRouteByRole[role] ?? '/';
+      navigate(target, { replace: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Terjadi kesalahan saat login.';
+      toast({
+        title: 'Login gagal',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -89,29 +114,6 @@ const Login = () => {
           </div>
 
           <form onSubmit={handleLogin} className="space-y-6">
-            {/* Role Selector */}
-            <div className="space-y-3">
-              <label className="text-sm font-medium text-foreground">Pilih Role</label>
-              <div className="grid grid-cols-2 gap-2">
-                {roles.map((role) => (
-                  <button
-                    key={role.value}
-                    type="button"
-                    onClick={() => setSelectedRole(role.value)}
-                    className={cn(
-                      'p-3 rounded-xl border text-left transition-all duration-200',
-                      selectedRole === role.value
-                        ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
-                        : 'border-border hover:border-primary/50 hover:bg-accent'
-                    )}
-                  >
-                    <p className="font-medium text-sm text-foreground">{role.label}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{role.description}</p>
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {/* Email */}
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Email</label>
@@ -133,26 +135,27 @@ const Login = () => {
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="input-field pl-10"
+                  className="input-field pl-10 pr-10"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus:outline-none"
+                  aria-label={showPassword ? 'Sembunyikan password' : 'Tampilkan password'}
+                >
+                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                </button>
               </div>
             </div>
 
-            {/* Demo Notice */}
-            <div className="rounded-lg bg-info/10 border border-info/20 p-3">
-              <p className="text-sm text-info">
-                <strong>Mode Demo:</strong> Pilih role dan klik masuk. Password tidak diperlukan.
-              </p>
-            </div>
-
             {/* Submit */}
-            <button type="submit" className="btn-primary w-full">
-              <span>Masuk</span>
-              <ArrowRight className="h-4 w-4" />
+            <button type="submit" className={cn('btn-primary w-full', isSubmitting && 'opacity-80 cursor-not-allowed')} disabled={isSubmitting}>
+              <span>{isSubmitting ? 'Memproses...' : 'Masuk'}</span>
+              {!isSubmitting && <ArrowRight className="h-4 w-4" />}
             </button>
           </form>
 
